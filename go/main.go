@@ -254,8 +254,8 @@ func main() {
 		e.Logger.Fatalf("failed to connect db: %v", err)
 		return
 	}
-	db.SetMaxOpenConns(128)
-	db.SetMaxOpenConns(128)
+	db.SetMaxOpenConns(32)
+	db.SetMaxOpenConns(32)
 	defer db.Close()
 
 	postIsuConditionTargetBaseURL = os.Getenv("POST_ISUCONDITION_TARGET_BASE_URL")
@@ -471,9 +471,10 @@ func getIsuList(c echo.Context) error {
 	defer tx.Rollback()
 
 	isuList := []Isu{}
+	// 必要なカラムだけ取得する (特にimageの取得を省略する)
 	err = tx.Select(
 		&isuList,
-		"SELECT * FROM `isu` WHERE `jia_user_id` = ? ORDER BY `id` DESC",
+		"SELECT `id`, `jia_isu_uuid`, `name`, `character` FROM `isu` WHERE `jia_user_id` = ? ORDER BY `id` DESC",
 		jiaUserID)
 	if err != nil {
 		c.Logger().Errorf("db error: %v", err)
