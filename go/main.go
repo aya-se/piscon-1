@@ -198,7 +198,7 @@ func NewMySQLConnectionEnv() *MySQLConnectionEnv {
 }
 
 func (mc *MySQLConnectionEnv) ConnectDB() (*sqlx.DB, error) {
-	dsn := fmt.Sprintf("%v:%v@tcp(%v:%v)/%v?parseTime=true&loc=Asia%%2FTokyo", mc.User, mc.Password, mc.Host, mc.Port, mc.DBName)
+	dsn := fmt.Sprintf("%v:%v@tcp(%v:%v)/%v?parseTime=true&loc=Asia%%2FTokyo&interpolateParams=true", mc.User, mc.Password, mc.Host, mc.Port, mc.DBName)
 	return sqlx.Open("mysql", dsn)
 }
 
@@ -1166,9 +1166,6 @@ func getTrend(c echo.Context) error {
 
 // POST /api/condition/:jia_isu_uuid
 // ISUからのコンディションを受け取る
-// bulk insertの実装
-conditions := [] IsuConditionInsert
-
 func postIsuCondition(c echo.Context) error {
 	// TODO: 一定割合リクエストを落としてしのぐようにしたが、本来は全量さばけるようにすべき
 	dropProbability := 0.9
@@ -1207,45 +1204,26 @@ func postIsuCondition(c echo.Context) error {
 		return c.String(http.StatusNotFound, "not found: isu")
 	}
 
-	for i, cond := range req {
+	for _, cond := range req {
 		timestamp := time.Unix(cond.Timestamp, 0)
 
 		if !isValidConditionFormat(cond.Condition) {
 			return c.String(http.StatusBadRequest, "bad request body")
 		}
 
-		// bulk insertの実装
-		newCondition = IsuConditionInsert {
-			JIAIsuUUID: jiaIsuUUID,
-			Timestamp: timestamp,
-			IsSitting: cond.IsSitting,
-			Condition: cond.Condition,
-			Message: cond.Message,
+		_, err = tx.Exec(
+			"INSERT INTO `isu_condition`"+
+				"	(`jia_isu_uuid`, `timestamp`, `is_sitting`, `condition`, `message`)"+
+				"	VALUES (?, ?, ?, ?, ?)",
+			jiaIsuUUID, timestamp, cond.IsSitting, cond.Condition, cond.Message)
+		if err != nil {
+			c.Logger().Errorf("db error: %v", err)
+			return c.NoContent(http.StatusInternalServerError)
 		}
-		conditions = append(conditions, newCondition)
-		if len(conditions) >= 1000 {
-			query := "INSERT INTO `isu_condition`" +
-								"	(`jia_isu_uuid`, `timestamp`, `is_sitting`, `condition`, `message`)" +
-								"	VALUES (:conditions)"
-			_, err := tx.NamedExec(query, conditions)
-			if err != nil {
-				c.Logger().Errorf("db error: %v", err)
-				return c.NoContent(http.StatusInternalServerError)
-			}
-			err = tx.Commit()
-			conditions = [] IsuConditionInsert
-		}	
-		//_, err = tx.Exec(
-		//	"INSERT INTO `isu_condition`"+
-		//		"	(`jia_isu_uuid`, `timestamp`, `is_sitting`, `condition`, `message`)"+
-		//		"	VALUES (?, ?, ?, ?, ?)",
-		//	jiaIsuUUID, timestamp, cond.IsSitting, cond.Condition, cond.Message)
-		// if err != nil {
-		// 	c.Logger().Errorf("db error: %v", err)
-		// 	return c.NoContent(http.StatusInternalServerError)
-		// }
 
 	}
+
+	err = tx.Commit()
 	if err != nil {
 		c.Logger().Errorf("db error: %v", err)
 		return c.NoContent(http.StatusInternalServerError)
