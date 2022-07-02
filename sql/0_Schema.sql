@@ -12,7 +12,8 @@ CREATE TABLE `isu` (
   `jia_user_id` VARCHAR(255) NOT NULL,
   `created_at` DATETIME(6) DEFAULT CURRENT_TIMESTAMP(6),
   `updated_at` DATETIME(6) DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
-   PRIMARY KEY(`id`)
+  UNIQUE `idx_pair` (`jia_user_uuid`, `id` DESC),
+  PRIMARY KEY(`id`),
 ) ENGINE=InnoDB DEFAULT CHARACTER SET=utf8mb4;
 
 CREATE TABLE `isu_condition` (
@@ -23,7 +24,7 @@ CREATE TABLE `isu_condition` (
   `condition` VARCHAR(255) NOT NULL,
   `message` VARCHAR(255) NOT NULL,
   `created_at` DATETIME(6) DEFAULT CURRENT_TIMESTAMP(6),
-  UNIQUE `idx_pair` (`jia_isu_uuid`, `created_at` DESC),
+  UNIQUE `idx_pair` (`jia_isu_uuid`, `timestamp` DESC),
   PRIMARY KEY(`id`)
 ) ENGINE=InnoDB DEFAULT CHARACTER SET=utf8mb4;
 
