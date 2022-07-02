@@ -90,6 +90,14 @@ type IsuCondition struct {
 	CreatedAt  time.Time `db:"created_at"`
 }
 
+// JOIN用のIsuCondition型
+type IsuConditionJoined struct {
+	ID         int       `db:"id"`
+	Character  string    `db:"character"`
+	JIAIsuUUID string    `db:"jia_isu_uuid"`
+	Timestamp  time.Time `db:"latest_timestamp"`
+}
+
 // INSERT用のIsuCondition型
 type IsuConditionInsert struct {
 	JIAIsuUUID string    `db:"jia_isu_uuid"`
@@ -1101,8 +1109,11 @@ func getTrend(c echo.Context) error {
 	res := []TrendResponse{}
 
 	for _, character := range characterList {
-		isuList := []Isu{}
+		conditions := []IsuConditionJoined{}
+		
+		/*
 		// 必要なカラムだけ取得
+		isuList := []Isu{}
 		err = db.Select(&isuList,
 			"SELECT `id`, `jia_isu_uuid`, `name`, `character`, `jia_user_id`, `created_at`, `updated_at` FROM `isu` WHERE `character` = ?",
 			character.Character,
@@ -1111,11 +1122,43 @@ func getTrend(c echo.Context) error {
 			c.Logger().Errorf("db error: %v", err)
 			return c.NoContent(http.StatusInternalServerError)
 		}
-
+		*/
 		characterInfoIsuConditions := []*TrendCondition{}
 		characterWarningIsuConditions := []*TrendCondition{}
 		characterCriticalIsuConditions := []*TrendCondition{}
+
+		// N+1問題の改善
+		err = db.Select(&conditions,
+			"SELECT i.`id`, i.`character`, ic.`condition`, MAX(ic.`timestamp`) AS `latest_timestamp` FROM `isu` AS i LEFT JOIN `isu_condition` AS ic ON (i.`jia_isu_uuid` = ic.`jia_isu_uuid`) WHERE i.`character` = ? GROUP BY ic.`jia_isu_uuid`",
+			character.Character,
+		)
+		if err != nil {
+			c.Logger().Errorf("db error: %v", err)
+			return c.NoContent(http.StatusInternalServerError)
+		}
+		for _, con := range conditions {
+			isuLastCondition := con
+			conditionLevel, err := calculateConditionLevel(isuLastCondition.Condition)
+			if err != nil {
+				c.Logger().Error(err)
+				return c.NoContent(http.StatusInternalServerError)
+			}
+			trendCondition := TrendCondition{
+				ID:        isu.ID,
+				Timestamp: isuLastCondition.Timestamp.Unix(),
+			}
+			switch conditionLevel {
+			case "info":
+				characterInfoIsuConditions = append(characterInfoIsuConditions, &trendCondition)
+			case "warning":
+				characterWarningIsuConditions = append(characterWarningIsuConditions, &trendCondition)
+			case "critical":
+				characterCriticalIsuConditions = append(characterCriticalIsuConditions, &trendCondition)
+			}
+		}
+		/*
 		for _, isu := range isuList {
+			
 			conditions := []IsuCondition{}
 			// 実は1番目しか使ってない！
 			err = db.Select(&conditions,
@@ -1147,8 +1190,8 @@ func getTrend(c echo.Context) error {
 					characterCriticalIsuConditions = append(characterCriticalIsuConditions, &trendCondition)
 				}
 			}
-
 		}
+		*/
 
 		sort.Slice(characterInfoIsuConditions, func(i, j int) bool {
 			return characterInfoIsuConditions[i].Timestamp > characterInfoIsuConditions[j].Timestamp
