@@ -295,15 +295,15 @@ func getUserIDFromSession(c echo.Context) (string, int, error) {
 	}
 
 	jiaUserID := _jiaUserID.(string)
-	var count int
+	var exist *int
 
-	err = db.Get(&count, "SELECT COUNT(`jia_user_id`) FROM `user` WHERE `jia_user_id` = ?",
+	err = db.Get(&exist, "SELECT 1 FROM `user` WHERE `jia_user_id` = ?",
 		jiaUserID)
-	if err != nil {
+	if err != nil && err != sql.ErrNoRows {
 		return "", http.StatusInternalServerError, fmt.Errorf("db error: %v", err)
 	}
 
-	if count == 0 {
+	if err == sql.ErrNoRows || exist == nil {
 		return "", http.StatusUnauthorized, fmt.Errorf("not found: user")
 	}
 
@@ -1033,16 +1033,16 @@ func getIsuConditionsFromDB(db *sqlx.DB, jiaIsuUUID string, endTime time.Time, c
 		err = db.Select(&conditions,
 			"SELECT * FROM `isu_condition` WHERE `jia_isu_uuid` = ?"+
 				"	AND `timestamp` < ?"+
-				"	ORDER BY `timestamp` DESC",
-			jiaIsuUUID, endTime,
+				"	ORDER BY `timestamp` DESC LIMIT ?",
+			jiaIsuUUID, endTime, limit,
 		)
 	} else {
 		err = db.Select(&conditions,
 			"SELECT * FROM `isu_condition` WHERE `jia_isu_uuid` = ?"+
 				"	AND `timestamp` < ?"+
 				"	AND ? <= `timestamp`"+
-				"	ORDER BY `timestamp` DESC",
-			jiaIsuUUID, endTime, startTime,
+				"	ORDER BY `timestamp` DESC LIMIT ?",
+			jiaIsuUUID, endTime, startTime, limit,
 		)
 	}
 	if err != nil {
@@ -1070,10 +1070,11 @@ func getIsuConditionsFromDB(db *sqlx.DB, jiaIsuUUID string, endTime time.Time, c
 		}
 	}
 
+	/*
 	if len(conditionsResponse) > limit {
 		conditionsResponse = conditionsResponse[:limit]
 	}
-
+	*/
 	return conditionsResponse, nil
 }
 
@@ -1211,13 +1212,13 @@ func postIsuCondition(c echo.Context) error {
 	}
 	defer tx.Rollback()
 
-	var count int
-	err = tx.Get(&count, "SELECT COUNT(`id`) FROM `isu` WHERE `jia_isu_uuid` = ?", jiaIsuUUID)
-	if err != nil {
+	var exist *int
+	err = tx.Get(&exist, "SELECT 1 FROM `isu` WHERE `jia_isu_uuid` = ?", jiaIsuUUID)
+	if err != nil && err != sql.ErrNoRows {
 		c.Logger().Errorf("db error: %v", err)
 		return c.NoContent(http.StatusInternalServerError)
 	}
-	if count == 0 {
+	if err == sql.ErrNoRows || exist == nil {
 		return c.String(http.StatusNotFound, "not found: isu")
 	}
 
