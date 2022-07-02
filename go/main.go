@@ -1119,7 +1119,7 @@ func getTrend(c echo.Context) error {
 			conditions := []IsuCondition{}
 			// 実は1番目しか使ってない！
 			err = db.Select(&conditions,
-				"SELECT * FROM `isu_condition` WHERE `jia_isu_uuid` = ? ORDER BY timestamp DESC LIMIT 1",
+				"SELECT `condition`, `timestamp` FROM `isu_condition` WHERE `jia_isu_uuid` = ? ORDER BY timestamp DESC LIMIT 1",
 				isu.JIAIsuUUID,
 			)
 			if err != nil {
