@@ -90,6 +90,14 @@ type IsuCondition struct {
 	CreatedAt  time.Time `db:"created_at"`
 }
 
+// JOIN用のIsuCondition型
+type IsuConditionJoined struct {
+	ID         int       `db:"id"`
+	Character  string    `db:"character"`
+	JIAIsuUUID string    `db:"jia_isu_uuid"`
+	Timestamp  time.Time `db:"latest_timestamp"`
+}
+
 // INSERT用のIsuCondition型
 type IsuConditionInsert struct {
 	JIAIsuUUID string    `db:"jia_isu_uuid"`
@@ -287,15 +295,15 @@ func getUserIDFromSession(c echo.Context) (string, int, error) {
 	}
 
 	jiaUserID := _jiaUserID.(string)
-	var count int
+	var exist *int
 
-	err = db.Get(&count, "SELECT COUNT(*) FROM `user` WHERE `jia_user_id` = ?",
+	err = db.Get(&exist, "SELECT 1 FROM `user` WHERE `jia_user_id` = ?",
 		jiaUserID)
-	if err != nil {
+	if err != nil && err != sql.ErrNoRows {
 		return "", http.StatusInternalServerError, fmt.Errorf("db error: %v", err)
 	}
 
-	if count == 0 {
+	if err == sql.ErrNoRows || exist == nil {
 		return "", http.StatusUnauthorized, fmt.Errorf("not found: user")
 	}
 
@@ -761,7 +769,7 @@ func getIsuGraph(c echo.Context) error {
 	defer tx.Rollback()
 
 	var count int
-	err = tx.Get(&count, "SELECT COUNT(*) FROM `isu` WHERE `jia_user_id` = ? AND `jia_isu_uuid` = ?",
+	err = tx.Get(&count, "SELECT COUNT(`id`) FROM `isu` WHERE `jia_user_id` = ? AND `jia_isu_uuid` = ?",
 		jiaUserID, jiaIsuUUID)
 	if err != nil {
 		c.Logger().Errorf("db error: %v", err)
@@ -1025,16 +1033,16 @@ func getIsuConditionsFromDB(db *sqlx.DB, jiaIsuUUID string, endTime time.Time, c
 		err = db.Select(&conditions,
 			"SELECT * FROM `isu_condition` WHERE `jia_isu_uuid` = ?"+
 				"	AND `timestamp` < ?"+
-				"	ORDER BY `timestamp` DESC",
-			jiaIsuUUID, endTime,
+				"	ORDER BY `timestamp` DESC LIMIT ?",
+			jiaIsuUUID, endTime, limit,
 		)
 	} else {
 		err = db.Select(&conditions,
 			"SELECT * FROM `isu_condition` WHERE `jia_isu_uuid` = ?"+
 				"	AND `timestamp` < ?"+
 				"	AND ? <= `timestamp`"+
-				"	ORDER BY `timestamp` DESC",
-			jiaIsuUUID, endTime, startTime,
+				"	ORDER BY `timestamp` DESC LIMIT ?",
+			jiaIsuUUID, endTime, startTime, limit,
 		)
 	}
 	if err != nil {
@@ -1062,10 +1070,11 @@ func getIsuConditionsFromDB(db *sqlx.DB, jiaIsuUUID string, endTime time.Time, c
 		}
 	}
 
+	/*
 	if len(conditionsResponse) > limit {
 		conditionsResponse = conditionsResponse[:limit]
 	}
-
+	*/
 	return conditionsResponse, nil
 }
 
@@ -1101,8 +1110,10 @@ func getTrend(c echo.Context) error {
 	res := []TrendResponse{}
 
 	for _, character := range characterList {
-		isuList := []Isu{}
+		conditions := []IsuConditionJoined{}
+		
 		// 必要なカラムだけ取得
+		isuList := []Isu{}
 		err = db.Select(&isuList,
 			"SELECT `id`, `jia_isu_uuid`, `name`, `character`, `jia_user_id`, `created_at`, `updated_at` FROM `isu` WHERE `character` = ?",
 			character.Character,
@@ -1111,15 +1122,16 @@ func getTrend(c echo.Context) error {
 			c.Logger().Errorf("db error: %v", err)
 			return c.NoContent(http.StatusInternalServerError)
 		}
-
 		characterInfoIsuConditions := []*TrendCondition{}
 		characterWarningIsuConditions := []*TrendCondition{}
 		characterCriticalIsuConditions := []*TrendCondition{}
+
 		for _, isu := range isuList {
+			
 			conditions := []IsuCondition{}
 			// 実は1番目しか使ってない！
 			err = db.Select(&conditions,
-				"SELECT * FROM `isu_condition` WHERE `jia_isu_uuid` = ? ORDER BY timestamp DESC LIMIT 1",
+				"SELECT `condition`, `timestamp` FROM `isu_condition` WHERE `jia_isu_uuid` = ? ORDER BY timestamp DESC LIMIT 1",
 				isu.JIAIsuUUID,
 			)
 			if err != nil {
@@ -1147,7 +1159,6 @@ func getTrend(c echo.Context) error {
 					characterCriticalIsuConditions = append(characterCriticalIsuConditions, &trendCondition)
 				}
 			}
-
 		}
 
 		sort.Slice(characterInfoIsuConditions, func(i, j int) bool {
@@ -1175,7 +1186,7 @@ func getTrend(c echo.Context) error {
 // ISUからのコンディションを受け取る
 func postIsuCondition(c echo.Context) error {
 	// TODO: 一定割合リクエストを落としてしのぐようにしたが、本来は全量さばけるようにすべき
-	dropProbability := 0.9
+	dropProbability := 0
 	if rand.Float64() <= dropProbability {
 		c.Logger().Warnf("drop post isu condition request")
 		return c.NoContent(http.StatusAccepted)
@@ -1201,13 +1212,13 @@ func postIsuCondition(c echo.Context) error {
 	}
 	defer tx.Rollback()
 
-	var count int
-	err = tx.Get(&count, "SELECT COUNT(*) FROM `isu` WHERE `jia_isu_uuid` = ?", jiaIsuUUID)
-	if err != nil {
+	var exist *int
+	err = tx.Get(&exist, "SELECT 1 FROM `isu` WHERE `jia_isu_uuid` = ?", jiaIsuUUID)
+	if err != nil && err != sql.ErrNoRows {
 		c.Logger().Errorf("db error: %v", err)
 		return c.NoContent(http.StatusInternalServerError)
 	}
-	if count == 0 {
+	if err == sql.ErrNoRows || exist == nil {
 		return c.String(http.StatusNotFound, "not found: isu")
 	}
 
