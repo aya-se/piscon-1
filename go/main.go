@@ -43,9 +43,11 @@ const (
 )
 
 var (
-	db                  *sqlx.DB
-	sessionStore        sessions.Store
-	mySQLConnectionData *MySQLConnectionEnv
+	db                    *sqlx.DB
+	db2                   *sqlx.DB // 第2鯖の導入
+	sessionStore          sessions.Store
+	mySQLConnectionData   *MySQLConnectionEnv
+	mySQLConnectionData2  *MySQLConnectionEnv
 
 	jiaJWTSigningKey *ecdsa.PublicKey
 
@@ -197,7 +199,17 @@ func getEnv(key string, defaultValue string) string {
 
 func NewMySQLConnectionEnv() *MySQLConnectionEnv {
 	return &MySQLConnectionEnv{
-		Host:     getEnv("MYSQL_HOST", "127.0.0.1"),
+		Host:     "192.168.0.12",
+		Port:     getEnv("MYSQL_PORT", "3306"),
+		User:     getEnv("MYSQL_USER", "isucon"),
+		DBName:   getEnv("MYSQL_DBNAME", "isucondition"),
+		Password: getEnv("MYSQL_PASS", "isucon"),
+	}
+}
+
+func NewMySQLConnectionEnv2() *MySQLConnectionEnv {
+	return &MySQLConnectionEnv{
+		Host:     "192.168.0.13",
 		Port:     getEnv("MYSQL_PORT", "3306"),
 		User:     getEnv("MYSQL_USER", "isucon"),
 		DBName:   getEnv("MYSQL_DBNAME", "isucondition"),
@@ -255,6 +267,7 @@ func main() {
 	e.Static("/assets", frontendContentsPath+"/assets")
 
 	mySQLConnectionData = NewMySQLConnectionEnv()
+	//mySQLConnectionData2 = NewMySQLConnectionEnv2()
 
 	var err error
 	db, err = mySQLConnectionData.ConnectDB()
@@ -262,10 +275,21 @@ func main() {
 		e.Logger.Fatalf("failed to connect db: %v", err)
 		return
 	}
-	db.SetMaxOpenConns(128)
-	db.SetMaxIdleConns(128)
+	db.SetMaxOpenConns(1024)
+	db.SetMaxIdleConns(1024)
 	defer db.Close()
 
+	/*
+	db2, err = mySQLConnectionData2.ConnectDB()
+	if err != nil {
+		e.Logger.Fatalf("failed to connect db: %v", err)
+		return
+	}
+	db2.SetMaxOpenConns(1024)
+	db2.SetMaxIdleConns(1024)
+	defer db2.Close()
+	*/
+	
 	postIsuConditionTargetBaseURL = os.Getenv("POST_ISUCONDITION_TARGET_BASE_URL")
 	if postIsuConditionTargetBaseURL == "" {
 		e.Logger.Fatalf("missing: POST_ISUCONDITION_TARGET_BASE_URL")
